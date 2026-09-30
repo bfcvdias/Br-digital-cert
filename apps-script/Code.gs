@@ -104,8 +104,8 @@ function toMF(lead, id) {
   const serviceNames = {'digital-certificate':'Certificado digital',documents:'Documentos e procurações',apostille:'Apostila e uso no exterior',other:'Outro serviço documental'};
   const cityNames = {montreal:'Montreal','quebec-city':'Cidade de Quebec',other:'Outra cidade'};
   const payload = {name:lead.name.trim(),phone:String(lead.phone).replace(/\D/g,''),pageUrl:lead.page,externalId:id,obs:{
-    'Sua cidade':cityNames[lead.city],'Idioma de preferência':'Português',
-    'Li e aceito a Política de Privacidade.':lead.consent === 'on',
+    'Idioma de preferência':'Português',
+    'Autorização de atendimento ao clicar em WhatsApp':lead.consent === 'on',
     'País / código internacional':lead.phone_country || '',
     'Origem':lead.source || 'direct','Campanha':lead.campaign || 'direct','Meio':lead.medium || 'direct','Termo':lead.term || 'direct',
     'Idioma da página':lead.landing_language,'Versão da política de privacidade':lead.consent_version || POLICY_VERSION
@@ -136,11 +136,11 @@ function leadErrors(lead) {
   const details = {};
   if (!lead || typeof lead !== 'object') return {name:'Confira os dados.'};
   if (!isText(lead.name,120)) details.name = 'Informe seu nome.';
-  if (!isText(lead.email,254) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email.trim())) details.email = 'Confira seu e-mail.';
+  if (lead.email && (!isText(lead.email,254) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email.trim()))) details.email = 'Confira seu e-mail.';
   if (!/^\+[\d\s().-]+$/.test(String(lead.phone || '')) || !/^[1-9]\d{7,14}$/.test(String(lead.phone || '').replace(/\D/g,''))) details.phone = 'Informe o número internacional com DDD.';
-  if (ALLOWED_SERVICES.indexOf(lead.service) < 0) details.service = 'Escolha o serviço.';
+  if (lead.service && ALLOWED_SERVICES.indexOf(lead.service) < 0) details.service = 'Escolha o serviço.';
   if (String(lead.message || '').length>2000) details.message = 'Use até 2000 caracteres.';
-  if (ALLOWED_CITIES.indexOf(lead.city)<0 || lead.consent!=='on' || lead.language!=='pt' || lead.landing_language!=='pt' || lead.website) details.name = 'Confira cidade e consentimento.';
+  if (lead.city && ALLOWED_CITIES.indexOf(lead.city)<0 || lead.consent!=='on' || lead.language!=='pt' || lead.landing_language!=='pt' || lead.website) details.name = 'Confira cidade e consentimento.';
   if (!/^https:\/\/(?:www\.)?certificabrasil\.ca(?:[/?#]|$)/.test(String(lead.page || ''))) details.name='Origem não autorizada.';
   return details;
 }

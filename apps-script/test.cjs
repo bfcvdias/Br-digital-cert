@@ -28,7 +28,7 @@ function harness(status=201) {
 }
 test('saves before MF, starts Não válido and confirms Válido with ticket',()=>{
   const h=harness();h.post();assert.equal(h.calls[0].validation,'Não válido');assert.equal(h.rows.length,2);assert.equal(h.rows[1][21],'Válido');assert.equal(h.rows[1][19],'MF-UAT-001');assert.equal(h.receipt().success,true);
-  const payload=JSON.parse(h.calls[0].options.payload);assert.equal(payload.phone,'5511912345678');assert.equal(payload.externalId,h.request.requestId);assert.equal(payload.obs['Sua cidade'],'Montreal');assert.equal(payload.obs['Li e aceito a Política de Privacidade.'],true);
+  const payload=JSON.parse(h.calls[0].options.payload);assert.equal(payload.phone,'5511912345678');assert.equal(payload.externalId,h.request.requestId);assert.equal(payload.obs['Autorização de atendimento ao clicar em WhatsApp'],true);
 });
 test('repeated identical request does not duplicate row or successful MF call',()=>{const h=harness();h.post();h.post();assert.equal(h.rows.length,2);assert.equal(h.calls.length,1);});
 test('MF errors retain saved row and Não válido',()=>{for(const status of [400,401,403,500,502]){const h=harness(status);h.post();assert.equal(h.receipt().status,status);assert.equal(h.receipt().saved,true);assert.equal(h.rows[1][21],'Não válido');assert.equal(h.rows.length,2);}});
@@ -37,3 +37,5 @@ test('invalid lead does not save or call MF',()=>{const h=harness();h.lead.phone
 test('receipt never exposes key or contact data and rejects wrong token',()=>{const h=harness();h.post();const parameter={requestId:h.request.requestId,receiptToken:h.request.receiptToken,callback:'__mfReceipt_'+'a'.repeat(32)};const r=h.context.doGet({parameter});assert.ok(r.value.includes('MF-UAT-001'));assert.ok(!r.value.includes('fake-private-key'));assert.ok(!r.value.includes('teste@example.com'));assert.ok(!r.value.includes('5511912345678'));parameter.receiptToken='b'.repeat(64);assert.ok(h.context.doGet({parameter}).value.includes('pending'));});
 test('international numbers have no country restriction; legacy formatted Canadian remains accepted',()=>{const h=harness();for(const phone of ['+1 514 555 1234','+12133734253','+5511912345678','+442079460018','+919876543210','+81312345678'])assert.equal(h.context.isValidLead({...h.lead,phone}),true);});
 
+
+test("simple form accepts missing email, city, service and message",()=>{const h=harness(); delete h.lead.email;delete h.lead.city;delete h.lead.service;delete h.lead.message;h.post();assert.equal(h.receipt().success,true);const payload=JSON.parse(h.calls[0].options.payload);assert.equal(payload.email,undefined);assert.equal(payload.service,undefined);});

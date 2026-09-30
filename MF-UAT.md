@@ -17,12 +17,14 @@ Projeto Firebase: my-br-digital-service. Código protegido: apps-script/Code.gs.
 
 O POST transmite os dados ao Apps Script. Como a resposta é opaca, uma consulta JSONP somente de leitura confirma a gravação e o encaminhamento usando UUID e token aleatório de 256 bits. O comprovante não retorna os campos do formulário nem a chave e expira após dez minutos.
 
-O consentimento usa um rótulo curto visível para respeitar o limite da MF; a explicação completa aparece abaixo. A política mantém contato e retenção de 12 meses e informa o encaminhamento à MF. SEO e Cloudflare Analytics foram preservados.
+O formulário usa somente Nome, Telefone / WhatsApp e E-mail opcional. O aviso junto do botão explica a autorização de registro e encaminhamento à MF; o clique registra o consentimento. Cidade e mensagem foram removidas; serviço só é preenchido quando a pessoa usa um link de interesse no site. A política mantém contato e retenção de 12 meses e informa o encaminhamento à MF. SEO e Cloudflare Analytics foram preservados.
 
 ## Verificação
 
-Executar node apps-script/test.cjs. Sete testes cobrem ordem de gravação, estados, erros, repetição e proteção dos comprovantes. Testes locais da interface usam respostas simuladas e verificaram mensagem com ticket e redirecionamento.
+Executar node apps-script/test.cjs. Oito testes cobrem ordem de gravação, estados, erros, repetição e proteção dos comprovantes. Testes locais da interface usam respostas simuladas e verificaram mensagem com ticket e redirecionamento.
 
 Em 30/09/2026, Apps Script versão 5 foi publicado no endpoint existente. O teste real salvou um registro sintético, mas MF UAT retornou HTTP 504 FUNCTION_INVOCATION_TIMEOUT em duas verificações. O site trata esse retorno como falha temporária. Depois, o teste completo pelo site publicado foi bem-sucedido: MF retornou BRN-oe46171, a planilha registrou Atendimento MF e Validação = Válido e o navegador redirecionou ao WhatsApp da MF com o ticket na mensagem. Os erros anteriores permanecem registrados como Não válido.
 
 Publicar somente Hosting no projeto my-br-digital-service. Para mudar a API para produção, trocar MF_API_URL, cadastrar a chave de produção na propriedade privada e publicar uma nova versão do mesmo Apps Script. A chave compartilhada no chat deve ser substituída.
+
+Apps Script versão 6 e Hosting publicados com o formulário simplificado em 30/09/2026.
