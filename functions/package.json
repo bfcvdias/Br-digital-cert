@@ -1,0 +1,15 @@
+{
+  "name": "certificabrasil-mf-partner",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "firebase-functions": "^7.4.0",
+    "libphonenumber-js": "^1.12.0"
+  }
+}

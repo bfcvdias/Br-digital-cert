@@ -1,0 +1,143 @@
+{
+  "hosting": {
+    "public": "site",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "netlify.toml",
+      "README.md",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self'; img-src 'self' https://images.unsplash.com data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://cloudflareinsights.com; font-src 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+          },
+          {
+            "key": "Cross-Origin-Opener-Policy",
+            "value": "same-origin"
+          },
+          {
+            "key": "Permissions-Policy",
+            "value": "camera=(), geolocation=(), microphone=()"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          }
+        ]
+      }
+    ],
+    "redirects": [
+      {
+        "source": "/quebec/fr",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/fr/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/en/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/en",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/pt",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/pt/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/fr/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/fr",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/en/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/en",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/pt/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/pt",
+        "destination": "/",
+        "type": 301
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/mf-leads",
+        "function": {
+          "functionId": "mfPartnerLead",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/quebec/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/pt/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/fr/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/en/**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "mf-partner",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "test",
+        "*.test.js"
+      ]
+    }
+  ]
+}
