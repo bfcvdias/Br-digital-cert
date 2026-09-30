@@ -28,3 +28,5 @@ Em 30/09/2026, Apps Script versão 5 foi publicado no endpoint existente. O test
 Publicar somente Hosting no projeto my-br-digital-service. Para mudar a API para produção, trocar MF_API_URL, cadastrar a chave de produção na propriedade privada e publicar uma nova versão do mesmo Apps Script. A chave compartilhada no chat deve ser substituída.
 
 Apps Script versão 6 e Hosting publicados com o formulário simplificado em 30/09/2026.
+
+Atualização: o chamado permanece somente na planilha. O WhatsApp recebe uma saudação sem número de ticket. Durante o envio, o site mostra processamento e, após sete segundos, informa que continua aguardando a MF.

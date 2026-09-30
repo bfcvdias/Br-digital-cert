@@ -48,6 +48,10 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
   const originalText = button.textContent;
   submitting = true; button.disabled = true; button.textContent = "Enviando...";
   form.setAttribute('aria-busy', 'true'); status.replaceChildren(); status.classList.remove('form-status-success');
+  status.textContent = 'Estamos processando seu pedido. Aguarde para abrir o WhatsApp.';
+  const waitingNotice = setTimeout(() => {
+    status.textContent = 'Ainda estamos aguardando a resposta da MF. O envio continua em andamento; não precisa clicar novamente.';
+  }, 7000);
   const payload = {
     name: lead.name.trim(), phone: fullPhone.replace(/\D/g, ''),
     pageUrl: location.href,
@@ -85,10 +89,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
     if (![200,201].includes(result.status) || result.success !== true || !result.ticketNumber) throw new Error(`MF: HTTP ${result.status}`);
     const url = new URL(result.whatsappUrl);
     if (url.protocol !== 'https:' || url.hostname !== 'wa.me' || !/^\/\d{8,15}\/?$/.test(url.pathname) || url.username || url.password || url.port) throw new Error('MF: link do WhatsApp inválido');
-    const ticketNumber = String(result.ticketNumber);
-    let whatsappText = url.searchParams.get('text') || result.whatsappText || '';
-    if (!whatsappText.includes(ticketNumber)) whatsappText = [whatsappText, `Olá! Meu número de atendimento é ${ticketNumber}.`].filter(Boolean).join('\n');
-    url.searchParams.set('text',whatsappText);
+    url.searchParams.set('text','Olá! Vim pela CertificaBrasil e gostaria de atendimento.');
     success = true;
     window.location.href = url.href;
   } catch (error) {
@@ -97,6 +98,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
       ? 'Recebemos seus dados, mas não conseguimos concluir o encaminhamento agora. Tente novamente em instantes.'
       : 'Não conseguimos enviar seus dados agora. Tente novamente em instantes.';
   } finally {
+    clearTimeout(waitingNotice);
     form.removeAttribute('aria-busy');
     if (!success) { submitting = false; button.disabled = false; button.textContent = originalText; }
   }
