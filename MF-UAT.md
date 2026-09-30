@@ -30,3 +30,5 @@ Publicar somente Hosting no projeto my-br-digital-service. Para mudar a API para
 Apps Script versão 6 e Hosting publicados com o formulário simplificado em 30/09/2026.
 
 Atualização: o chamado permanece somente na planilha. O WhatsApp recebe uma saudação sem número de ticket. Durante o envio, o site mostra processamento e, após sete segundos, informa que continua aguardando a MF.
+
+Mensagem aprovada: Iniciei meu atendimento pela CertificaBrasil Canada, parceira e representante da MF, e gostaria de orientação para dar continuidade ao meu pedido. Ao final, inclui Meu número de chamado é: seguido do ticket real da API. O aviso no formulário informa o acompanhamento pela equipe MF.
