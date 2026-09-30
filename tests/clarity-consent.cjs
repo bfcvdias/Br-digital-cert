@@ -1,0 +1,9 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
+const source=fs.readFileSync('site/assets/clarity.js','utf8').replace(/^import[^\n]+\n/,'');
+function run(saved,blocked=false){const values=new Map(saved?[['certificabrasil-analytics-consent-v1',JSON.stringify(saved)]]:[]),signals=[],nodes={};for(const id of ['cookie-consent','cookie-preferences','cookie-choice','cookie-accept','cookie-reject'])nodes[id]={hidden:false,textContent:'',focus(){},addEventListener(type,fn){this[type]=fn;}};vm.runInNewContext(source,{Clarity:{init(){},consentV2:s=>signals.push({...s})},localStorage:{getItem:k=>{if(blocked)throw Error();return values.get(k)||null;},setItem:(k,v)=>{if(blocked)throw Error();values.set(k,v);}},document:{querySelector:s=>nodes[s.slice(1)]},Date,Number,JSON});return{nodes,signals,values};}
+let h=run();assert.equal(h.signals.at(-1).analytics_Storage,'denied');assert.equal(h.nodes['cookie-consent'].hidden,false);
+h.nodes['cookie-accept'].click();assert.equal(h.signals.at(-1).analytics_Storage,'granted');assert.equal(h.signals.at(-1).ad_Storage,'denied');assert.equal(h.nodes['cookie-consent'].hidden,true);
+h.nodes['cookie-preferences'].click();assert.equal(h.nodes['cookie-consent'].hidden,false);h.nodes['cookie-reject'].click();assert.equal(h.signals.at(-1).analytics_Storage,'denied');assert.equal(h.signals.at(-1).ad_Storage,'denied');
+h=run({analytics:'granted',at:Date.now()});assert.equal(h.signals.at(-1).analytics_Storage,'granted');assert.equal(h.nodes['cookie-consent'].hidden,true);
+h=run({analytics:'granted',at:Date.now()-181*86400000});assert.equal(h.signals.at(-1).analytics_Storage,'denied');assert.equal(h.nodes['cookie-consent'].hidden,false);
+h=run(null,true);h.nodes['cookie-accept'].click();assert.equal(h.signals.at(-1).analytics_Storage,'granted');console.log('ConsentV2: default denial, acceptance, withdrawal, persistence, expiry and blocked storage passed.');
