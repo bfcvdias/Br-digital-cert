@@ -12,7 +12,7 @@ Projeto Firebase: my-br-digital-service. Código protegido: apps-script/Code.gs.
 2. Grava na planilha com Validação = Não válido antes do envio à MF.
 3. Envia telefone só com dígitos; mapeia os demais campos e usa externalId para identificar o registro. Repetições idênticas na mesma página não duplicam a linha.
 4. Com sucesso HTTP 200/201, ticket e link WhatsApp válidos, registra Atendimento MF, Encaminhamento MF e Validação = Válido.
-5. Mostra o ticket e botão WhatsApp e redireciona na mesma aba após três segundos; a mensagem sempre inclui o ticket.
+5. Redireciona imediatamente na mesma aba ao WhatsApp após confirmação do servidor; a mensagem inclui o ticket. O ticket permanece registrado na planilha e não é mostrado na tela.
 6. Em falha, preserva o registro como Não válido, informa o problema e permite nova tentativa.
 
 O POST transmite os dados ao Apps Script. Como a resposta é opaca, uma consulta JSONP somente de leitura confirma a gravação e o encaminhamento usando UUID e token aleatório de 256 bits. O comprovante não retorna os campos do formulário nem a chave e expira após dez minutos.

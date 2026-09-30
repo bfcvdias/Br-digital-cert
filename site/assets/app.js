@@ -89,15 +89,8 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
     let whatsappText = url.searchParams.get('text') || result.whatsappText || '';
     if (!whatsappText.includes(ticketNumber)) whatsappText = [whatsappText, `Olá! Meu número de atendimento é ${ticketNumber}.`].filter(Boolean).join('\n');
     url.searchParams.set('text',whatsappText);
-    const confirmation = document.createElement('p');
-    confirmation.textContent = 'Pedido confirmado. Seu número de atendimento: ';
-    const ticket = document.createElement('strong'); ticket.textContent = String(result.ticketNumber);
-    confirmation.append(ticket);
-    const link = document.createElement('a'); link.className = 'button'; link.href = url.href; link.textContent = 'Falar com a MF no WhatsApp';
-    status.append(confirmation, link);
-    status.classList.add('form-status-success'); status.tabIndex = -1; status.focus();
     success = true;
-    setTimeout(() => { window.location.href = url.href; }, 3000);
+    window.location.href = url.href;
   } catch (error) {
     console.error('Falha no encaminhamento MF', error instanceof Error ? error.message : 'Falha de rede');
     status.textContent = savedLeadSignature === signature
@@ -106,7 +99,6 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
   } finally {
     form.removeAttribute('aria-busy');
     if (!success) { submitting = false; button.disabled = false; button.textContent = originalText; }
-    else button.textContent = 'Pedido enviado';
   }
 });
 
