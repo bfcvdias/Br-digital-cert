@@ -1,43 +1,28 @@
-# CertificaBrasil — encaminhamento MF em UAT
+# CertificaBrasil — integração MF UAT
 
-O site atualizado está em `site/`; `functions/` contém o encaminhamento protegido para a API da MF. A configuração de Hosting publica somente `site/`. O código antigo do repositório não deve ser usado para esta publicação.
+O site de produção certificabrasil.ca usa site/. Somente a API MF usa UAT. Firebase Hosting publica os arquivos estáticos; Apps Script salva na planilha e encaminha à MF. Esta integração não usa Cloud Functions nem exige Blaze.
 
-## Configuração protegida
+## Configuração
 
-- Projeto existente: `my-br-digital-service` (confirmar acesso antes de publicar).
-- A chave é o segredo Firebase `MF_API_KEY`. Nenhuma chave fica no HTML, JavaScript público ou repositório.
-- A URL UAT está em `functions/partner.js` como `MF_API_URL`, com a URL de produção comentada ao lado.
-- O país inicial é Canadá (+1), configurado no topo de `site/assets/phone.js`; todos os 245 países/territórios da biblioteca podem ser escolhidos.
-- As Cloud Functions exigem um projeto com faturamento habilitado. Não mudar o plano automaticamente.
+Projeto Firebase: my-br-digital-service. Código protegido: apps-script/Code.gs. A chave fica somente na propriedade privada MF_API_KEY do Apps Script. MF_API_URL aponta para UAT e tem a URL de produção comentada ao lado. O país inicial é Canadá (+1); a lista pesquisável inclui todos os países/territórios da biblioteca, com Canadá, Estados Unidos e Brasil primeiro.
 
-Após login no Firebase CLI, cadastrar a chave pelo prompt oculto:
+## Fluxo
 
-```powershell
-npx -y firebase-tools@latest functions:secrets:set MF_API_KEY --project my-br-digital-service
-```
+1. Valida formato internacional e regras do plano telefônico no navegador. Isso não confirma a existência de conta WhatsApp.
+2. Grava na planilha com Validação = Não válido antes do envio à MF.
+3. Envia telefone só com dígitos; mapeia os demais campos e usa externalId para identificar o registro. Repetições idênticas na mesma página não duplicam a linha.
+4. Com sucesso HTTP 200/201, ticket e link WhatsApp válidos, registra Atendimento MF, Encaminhamento MF e Validação = Válido.
+5. Mostra o ticket e botão WhatsApp e redireciona na mesma aba após três segundos; a mensagem sempre inclui o ticket.
+6. Em falha, preserva o registro como Não válido, informa o problema e permite nova tentativa.
 
-Publicar primeiro a função e depois o canal de testes (não publicar Hosting de produção enquanto a API aponta para UAT):
+O POST transmite os dados ao Apps Script. Como a resposta é opaca, uma consulta JSONP somente de leitura confirma a gravação e o encaminhamento usando UUID e token aleatório de 256 bits. O comprovante não retorna os campos do formulário nem a chave e expira após dez minutos.
 
-```powershell
-npm.cmd ci --prefix functions
-npx -y firebase-tools@latest deploy --only functions:mfPartnerLead --project my-br-digital-service
-npx -y firebase-tools@latest hosting:channel:deploy mf-uat --expires 7d --project my-br-digital-service
-```
+O consentimento usa um rótulo curto visível para respeitar o limite da MF; a explicação completa aparece abaixo. A política mantém contato e retenção de 12 meses e informa o encaminhamento à MF. SEO e Cloudflare Analytics foram preservados.
 
-## Validação
+## Verificação
 
-```powershell
-node --test functions/test/partner.test.js
-```
+Executar node apps-script/test.cjs. Sete testes cobrem ordem de gravação, estados, erros, repetição e proteção dos comprovantes. Testes locais da interface usam respostas simuladas e verificaram mensagem com ticket e redirecionamento.
 
-Verificado localmente: seis testes do servidor; seleção de país; pesquisa; resposta 400; resposta 502 com recuperação do botão; confirmação do ticket; botão WhatsApp; redirecionamento na mesma aba após 3 segundos; tela de celular sem overflow horizontal.
+Em 30/09/2026, Apps Script versão 5 foi publicado no endpoint existente. O teste real salvou um registro sintético, mas MF UAT retornou HTTP 504 FUNCTION_INVOCATION_TIMEOUT em duas verificações. O site trata esse retorno como falha temporária. A confirmação real de ticket está pendente da disponibilidade/correção do UAT da MF.
 
-As respostas locais são simuladas. Ainda não foram validados autenticação real da MF, criação de ticket UAT, autorização do domínio/canal de testes nem registro real em planilha. Não declarar UAT pronto antes destes testes.
-
-O Apps Script existente usa `no-cors`: o navegador pode aguardar a transmissão, mas não consegue verificar a resposta nem obter o ID do registro. O mesmo pedido não é reenviado à planilha durante uma tentativa repetida na mesma página; alterações de dados geram novo registro. O identificador `externalId` é omitido porque o fluxo atual não o fornece. Persistência garantida e retomada após recarregar a página exigem uma resposta confirmada do Apps Script, fora desta alteração.
-
-`obs` contém os campos restantes de cidade, idioma, país, consentimento, versão de política e origem. Rótulos visíveis são preservados. Campos de armadilha e credenciais não são encaminhados. Mensagem livre segue o contrato da MF; a página orienta a não enviar documentos, senhas ou dados sensíveis.
-
-SEO e beacon Cloudflare foram preservados. A política de privacidade agora informa o encaminhamento à MF, com versão de consentimento 2026-09-30.
-
-Após aprovação UAT e liberação da MF, trocar `MF_API_URL`, cadastrar a chave de produção, republicar a função e promover o site aprovado para Hosting de produção. A chave enviada no chat deve ser substituída.
+Publicar somente Hosting no projeto my-br-digital-service. Para mudar a API para produção, trocar MF_API_URL, cadastrar a chave de produção na propriedade privada e publicar uma nova versão do mesmo Apps Script. A chave compartilhada no chat deve ser substituída.

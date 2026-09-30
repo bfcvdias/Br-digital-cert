@@ -1,5 +1,5 @@
 /* Partner authentication is held by the server, never in public JavaScript. */
-const MF_PROXY_URL = "/api/mf-leads";
+
 const CONFIG = {
   leadWebhookUrl: "https://script.google.com/macros/s/AKfycbyft5lhViodQg1cGJYL_Hn5XyW4dhkVeZeIgmPTD1XVqQbLbPybp0wwq04IVL9uZpxA/exec",
   brand: "Certifica Brasil Québec"
@@ -31,6 +31,7 @@ document.querySelector('[name="landing_language"]').value = lang;
 
 let submitting = false;
 let savedLeadSignature = null;
+const mfReceipts = new Map();
 document.querySelector("#lead-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget, status = document.querySelector("#form-status");
@@ -53,7 +54,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
     obs: {
       'Sua cidade': form.elements.city.selectedOptions[0].textContent,
       'Idioma de preferência': form.elements.language.selectedOptions[0].textContent,
-      'Li a Política de Privacidade e autorizo o registro dos meus dados para responder a este pedido e entrar em contato por WhatsApp ou e-mail.': form.elements.consent.checked,
+      'Li e aceito a Política de Privacidade.': form.elements.consent.checked,
       'País / código internacional': form.elements.phone_country.value,
       'Origem': lead.source, 'Campanha': lead.campaign, 'Meio': lead.medium,
       'Termo': lead.term, 'Idioma da página': lead.landing_language,
@@ -66,17 +67,14 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
   const signature = JSON.stringify(payload);
   let success = false;
   try {
-    if (savedLeadSignature !== signature && CONFIG.leadWebhookUrl) {
-      await fetch(CONFIG.leadWebhookUrl, {method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(lead),keepalive:true,signal:AbortSignal.timeout(20000)});
-      savedLeadSignature = signature;
+    let receipt = mfReceipts.get(signature);
+    if (!receipt) {
+      receipt = {requestId:crypto.randomUUID(),receiptToken:[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,"0")).join("")};
+      mfReceipts.set(signature,receipt);
     }
-    const response = await fetch(MF_PROXY_URL, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: signature, signal: AbortSignal.timeout(25000)
-    });
-    let result;
-    try { result = await response.json(); } catch (_) { throw new Error('MF: resposta inválida'); }
-    if (response.status === 400) {
+    const result = await sendMFLead(lead,receipt);
+    if (result.saved) savedLeadSignature = signature;
+    if (result.status === 400) {
       const labels = {name:'Nome completo',phone:'Telefone / WhatsApp',email:'E-mail',service:'Serviço',message:'Mensagem'};
       const details = result.details;
       const fields = Array.isArray(details) ? details.map(item => typeof item === 'string' ? item : item.field || item.path?.[0]) : details && typeof details === 'object' ? Object.keys(details) : [];
@@ -85,9 +83,13 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
       console.error('MF: dados inválidos', {status: 400, fields: fields.filter(field => labels[field])});
       return;
     }
-    if (![200,201].includes(response.status) || result.success !== true || !result.ticketNumber) throw new Error(`MF: HTTP ${response.status}`);
+    if (![200,201].includes(result.status) || result.success !== true || !result.ticketNumber) throw new Error(`MF: HTTP ${result.status}`);
     const url = new URL(result.whatsappUrl);
     if (url.protocol !== 'https:' || url.hostname !== 'wa.me' || !/^\/\d{8,15}\/?$/.test(url.pathname) || url.username || url.password || url.port) throw new Error('MF: link do WhatsApp inválido');
+    const ticketNumber = String(result.ticketNumber);
+    let whatsappText = url.searchParams.get('text') || result.whatsappText || '';
+    if (!whatsappText.includes(ticketNumber)) whatsappText = [whatsappText, `Olá! Meu número de atendimento é ${ticketNumber}.`].filter(Boolean).join('\n');
+    url.searchParams.set('text',whatsappText);
     const confirmation = document.createElement('p');
     confirmation.textContent = 'Pedido confirmado. Seu número de atendimento: ';
     const ticket = document.createElement('strong'); ticket.textContent = String(result.ticketNumber);
@@ -123,4 +125,6 @@ const ptOverrides = {
 document.querySelectorAll("[data-i18n]").forEach(el => {
   if (ptOverrides[el.dataset.i18n]) el.textContent = ptOverrides[el.dataset.i18n];
 });
+
+
 
