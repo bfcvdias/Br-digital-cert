@@ -89,7 +89,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
     if (![200,201].includes(result.status) || result.success !== true || !result.ticketNumber) throw new Error(`MF: HTTP ${result.status}`);
     const url = new URL(result.whatsappUrl);
     if (url.protocol !== 'https:' || url.hostname !== 'wa.me' || !/^\/\d{8,15}\/?$/.test(url.pathname) || url.username || url.password || url.port) throw new Error('MF: link do WhatsApp inválido');
-    url.searchParams.set('text',`Iniciei meu atendimento pela CertificaBrasil Canada, parceira e representante da MF, e gostaria de orientação para dar continuidade ao meu pedido.\n\nMeu número de chamado é: ${String(result.ticketNumber)}.`);
+    url.searchParams.set('text',`Iniciei meu atendimento pela CertificaBrasil Canada, parceira e representante da MF Certificados, e gostaria de orientação para dar continuidade ao meu pedido.\n\nMeu número de chamado é: ${String(result.ticketNumber)}.`);
     success = true;
     window.location.href = url.href;
   } catch (error) {
