@@ -23,6 +23,6 @@ O consentimento usa um rótulo curto visível para respeitar o limite da MF; a e
 
 Executar node apps-script/test.cjs. Sete testes cobrem ordem de gravação, estados, erros, repetição e proteção dos comprovantes. Testes locais da interface usam respostas simuladas e verificaram mensagem com ticket e redirecionamento.
 
-Em 30/09/2026, Apps Script versão 5 foi publicado no endpoint existente. O teste real salvou um registro sintético, mas MF UAT retornou HTTP 504 FUNCTION_INVOCATION_TIMEOUT em duas verificações. O site trata esse retorno como falha temporária. A confirmação real de ticket está pendente da disponibilidade/correção do UAT da MF.
+Em 30/09/2026, Apps Script versão 5 foi publicado no endpoint existente. O teste real salvou um registro sintético, mas MF UAT retornou HTTP 504 FUNCTION_INVOCATION_TIMEOUT em duas verificações. O site trata esse retorno como falha temporária. Depois, o teste completo pelo site publicado foi bem-sucedido: MF retornou BRN-oe46171, a planilha registrou Atendimento MF e Validação = Válido e o navegador redirecionou ao WhatsApp da MF com o ticket na mensagem. Os erros anteriores permanecem registrados como Não válido.
 
 Publicar somente Hosting no projeto my-br-digital-service. Para mudar a API para produção, trocar MF_API_URL, cadastrar a chave de produção na propriedade privada e publicar uma nova versão do mesmo Apps Script. A chave compartilhada no chat deve ser substituída.
