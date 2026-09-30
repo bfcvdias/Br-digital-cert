@@ -1,6 +1,7 @@
 import Clarity from './vendor/clarity/index.js';
+import { setGoogleConsent } from './google-tag.js';
 const CLARITY_PROJECT_ID = 'yqkkecn4cx';
-const CONSENT_KEY = 'certificabrasil-analytics-consent-v1';
+const CONSENT_KEY = 'certificabrasil-analytics-consent-v2';
 const MAX_AGE = 180 * 24 * 60 * 60 * 1000;
 let choice = null;
 try {
@@ -8,7 +9,11 @@ try {
   if (saved && ['granted','denied'].includes(saved.analytics) && Number.isFinite(saved.at) && saved.at <= Date.now() && Date.now() - saved.at < MAX_AGE) choice = saved.analytics;
 } catch (_) {}
 Clarity.init(CLARITY_PROJECT_ID);
-function applyConsent() { Clarity.consentV2({ad_Storage:'denied',analytics_Storage:choice === 'granted' ? 'granted' : 'denied'}); }
+function applyConsent() {
+  const granted = choice === 'granted';
+  Clarity.consentV2({ad_Storage:'denied',analytics_Storage:granted?'granted':'denied'});
+  setGoogleConsent(granted);
+}
 applyConsent();
 const panel = document.querySelector('#cookie-consent');
 const preferences = document.querySelector('#cookie-preferences');

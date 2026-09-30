@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('site/assets/google-tag.js','utf8').replace('export function','function');
+const window={},scripts=[];
+const context={window,Date,document:{createElement:()=>({}),head:{append:script=>scripts.push(script)}}};
+vm.createContext(context);vm.runInContext(source,context);
+assert.equal(window['ga-disable-G-FGFEH4Y7W4'],true);assert.equal(window.dataLayer[0][0],'consent');assert.equal(window.dataLayer[0][1],'default');assert.equal(window.dataLayer[0][2].analytics_storage,'denied');assert.equal(scripts.length,0);
+context.setGoogleConsent(false);assert.equal(scripts.length,0);
+context.setGoogleConsent(true);assert.equal(scripts.length,1);assert.equal(scripts[0].src,'https://www.googletagmanager.com/gtag/js?id=G-FGFEH4Y7W4');assert.equal(window['ga-disable-G-FGFEH4Y7W4'],false);const config=window.dataLayer.find(item=>item[0]==='config');assert.equal(config[1],'G-FGFEH4Y7W4');assert.equal(config[2].allow_google_signals,false);
+context.setGoogleConsent(true);assert.equal(scripts.length,1);assert.equal(window.dataLayer.filter(item=>item[0]==='config').length,1);
+context.setGoogleConsent(false);assert.equal(window['ga-disable-G-FGFEH4Y7W4'],true);const consent=window.dataLayer.at(-1)[2];assert.equal(consent.analytics_storage,'denied');for(const name of ['ad_storage','ad_user_data','ad_personalization'])assert.equal(consent[name],'denied');
+console.log('Google tag: blocked before consent, correct ID, single initialization, withdrawal and advertising denial passed.');
