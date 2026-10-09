@@ -1,0 +1,128 @@
+{
+  "hosting": {
+    "public": "site",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "netlify.toml",
+      "README.md",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' https://www.googletagmanager.com https://*.clarity.ms https://static.cloudflareinsights.com https://script.google.com https://script.googleusercontent.com; style-src 'self'; img-src 'self' https://*.google-analytics.com https://*.clarity.ms https://images.unsplash.com data:; connect-src 'self' https://*.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms https://script.google.com https://script.googleusercontent.com https://cloudflareinsights.com; font-src 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+          },
+          {
+            "key": "Cross-Origin-Opener-Policy",
+            "value": "same-origin"
+          },
+          {
+            "key": "Permissions-Policy",
+            "value": "camera=(), geolocation=(), microphone=()"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, max-age=0, must-revalidate"
+          }
+        ]
+      }
+    ],
+    "redirects": [
+      {
+        "source": "/quebec/fr",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/fr/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/en/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/en",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/pt",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/quebec/pt/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/fr/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/fr",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/en/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/en",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/pt/**",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/pt",
+        "destination": "/",
+        "type": 301
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/quebec/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/pt/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/fr/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/en/**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
