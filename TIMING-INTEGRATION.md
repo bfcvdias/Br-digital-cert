@@ -4,15 +4,11 @@ This change adds measurement to the existing MF production integration. It does 
 
 ## Deployment status
 
-Prepared and tested locally; not deployed. The current live hosting files could not be accessed from the execution session. The repository's HTML is known to be older than the live site. Do not deploy the entire repository snapshot.
+Deployed to production on 2026-10-09 at approximately 15:54 America/Toronto. Apps Script Version 8 uses the same existing /exec URL and MF PRD endpoint. Firebase Hosting version `8d59864dbc24f1bd` was cloned from the exact current live release; only `/assets/app.js` and `/assets/mf-transport.js` changed. All other 32 files and existing configuration remained unchanged. Hosting's existing no-cache policy applies to both scripts.
 
-Apply the small code changes to the CURRENT deployed copies of:
+One marked live form test recorded Leads row 36 and ticket `BRN-on46um1`. MF API: 7271 ms; server before API: 1867 ms; server after API: 191 ms; total server: 9329 ms; click-to-receipt: 19520 ms; click-to-redirect: 19528 ms; receipt-to-redirect: 8 ms; opaque POST settled: 11561 ms; last JSONP query: 1496 ms; two queries. Telemetry outcome: redirect_started. The browser visibly reached the WhatsApp page with this ticket. No WhatsApp message was sent.
 
-- `assets/mf-transport.js`
-- `assets/app.js`
-- Apps Script `Code.gs`
-
-Preserve all other current files. Compare current JavaScript with the patch before applying it. Add a cache-version query to only the two changed script references in every current page that uses the form. Update the existing Apps Script deployment to a new version (same `/exec` URL), then publish the two current patched JavaScript files using the existing Firebase Hosting deployment process. These changes should be released together; mixing a new app.js with an old transport file will break the form.
+These are a single test's measurements, not a performance improvement claim. The observed delay was before receipt delivery, not waiting after it. Transport/startup/polling need further investigation; this data does not attribute their exact individual contribution. The previous 15 tests passed; a repeat via the restored local runtime timed out, so no additional completed test run is claimed.
 
 ## Metrics in the existing Leads tab
 
