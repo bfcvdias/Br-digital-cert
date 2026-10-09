@@ -9,9 +9,11 @@ const ALLOWED_CITIES = ['montreal', 'quebec-city', 'other'];
 const ALLOWED_SERVICES = ['digital-certificate', 'documents', 'apostille', 'other'];
 
 function doPost(e) {
+  const serverStartedAt = Date.now();
   let request;
   try { request = JSON.parse(e && e.postData && e.postData.contents || '{}'); }
   catch (_) { return response({ok:false}); }
+  if (request.action === 'mfTiming') return saveMFTiming(request);
   if (request.action !== 'mfLead') return legacySave(request);
   if (!validReceipt(request.requestId, request.receiptToken)) return response({ok:false});
   const cache = CacheService.getScriptCache();
@@ -22,7 +24,7 @@ function doPost(e) {
     if (receipt.token !== request.receiptToken) return response({ok:false});
     if (receipt.result.success || receipt.result.pending) return response({ok:true});
   }
-  let saved = false, row, sheet, apiDurationMs = null;
+  let saved = false, row, sheet, apiDurationMs = null, apiStartedAt = null, apiCompletedAt = null;
   function finish(result) {
     // This is the latest actual MF request duration, not the browser's total wait.
     if (apiDurationMs !== null) {
@@ -35,6 +37,11 @@ function doPost(e) {
     if (saved && row && sheet && !result.pending) {
       try {sheet.getRange(row,21,1,2).setValues([[result.success?'Encaminhado à MF PRD':'Falha MF ('+result.status+')',result.success?'Válido':'Não válido']]);} catch (_) {}
     }
+    // Same server clock for every stage; never subtract browser and server timestamps.
+    const receiptReadyAt = Date.now();
+    result.serverTotalMs = Math.max(0, receiptReadyAt - serverStartedAt);
+    if (apiStartedAt !== null) result.serverPreApiMs = Math.max(0, apiStartedAt - serverStartedAt);
+    if (apiCompletedAt !== null) result.serverPostApiMs = Math.max(0, receiptReadyAt - apiCompletedAt);
     cache.put(cacheKey, JSON.stringify({token:request.receiptToken,result:result}), 600);
     return response({ok:result.success === true});
   }
@@ -82,12 +89,13 @@ function doPost(e) {
       payload:JSON.stringify(toMF(lead,request.requestId)),muteHttpExceptions:true,followRedirects:false
     };
     let upstream;
-    const apiStartedAt = Date.now();
+    apiStartedAt = Date.now();
     try {
       upstream = UrlFetchApp.fetch(MF_API_URL, fetchOptions);
     } finally {
       // Capture HTTP failures and thrown network errors without timing Sheet writes.
-      apiDurationMs = Math.max(0, Date.now() - apiStartedAt);
+      apiCompletedAt = Date.now();
+      apiDurationMs = Math.max(0, apiCompletedAt - apiStartedAt);
     }
     const status = upstream.getResponseCode();
     let data;
@@ -146,7 +154,56 @@ function legacySave(lead) {
   } catch (_) {return response({ok:false});} finally {lock.releaseLock();}
 }
 function ensureHeaders(sheet) {
-  sheet.getRange(1,15,1,9).setValues([['Consentimento registrado','Versão da política','ID do registro','Comprovante hash','Pedido hash','Atendimento MF','Encaminhamento MF','Validação','Tempo API MF (ms)']]);
+  if (sheet.getMaxColumns() < 36) sheet.insertColumnsAfter(sheet.getMaxColumns(),36-sheet.getMaxColumns());
+  sheet.getRange(1,15,1,22).setValues([['Consentimento registrado','Versão da política','ID do registro','Comprovante hash','Pedido hash','Atendimento MF','Encaminhamento MF','Validação','Tempo API MF (ms)',
+    'Servidor antes da API (ms)','Servidor após API até recibo (ms)','Servidor até publicar recibo (ms)',
+    'Clique até receber ticket (ms)','Clique até iniciar WhatsApp (ms)','Ticket recebido até WhatsApp (ms)',
+    'Clique até POST terminar (ms)','Última consulta de recibo (ms)','Consultas de recibo',
+    'Clique até falha (ms)','Resultado da medição','Medição no navegador (UTC)','Medição registrada']]);
+}
+
+// Best-effort telemetry for this lead only; it never calls MF or changes lead status.
+function saveMFTiming(request) {
+  if (!validReceipt(request.requestId,request.receiptToken)) return response({ok:false});
+  const raw = CacheService.getScriptCache().get('mf:'+request.requestId);
+  const receipt = raw ? JSON.parse(raw) : null;
+  if (!receipt || receipt.token !== request.receiptToken || !receipt.result.saved) return response({ok:false});
+  const t = request.timing;
+  if (!t || typeof t !== 'object' || ['redirect_started','failed'].indexOf(t.outcome)<0) return response({ok:false});
+  const durationFields = ['serverPreApiMs','serverPostApiMs','serverTotalMs','clickToReceiptMs','clickToRedirectMs',
+    'receiptToRedirectMs','clickToPostSettledMs','lastReceiptQueryMs','clickToFailureMs'];
+  for (const field of durationFields) {
+    if (t[field] != null && (!Number.isInteger(t[field]) || t[field]<0 || t[field]>600000)) return response({ok:false});
+  }
+  if (!Number.isInteger(t.receiptPollCount) || t.receiptPollCount<0 || t.receiptPollCount>1000 ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(t.measuredAt || '')) return response({ok:false});
+  if (t.outcome === 'redirect_started' && (!receipt.result.success || t.clickToReceiptMs == null ||
+      t.clickToRedirectMs == null || t.receiptToRedirectMs == null || t.clickToRedirectMs<t.clickToReceiptMs ||
+      t.receiptToRedirectMs!==t.clickToRedirectMs-t.clickToReceiptMs)) return response({ok:false});
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return response({ok:false});
+  try {
+    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
+    if (sheet.getLastRow()<2) return response({ok:false});
+    const match = sheet.getRange(2,17,sheet.getLastRow()-1,1).createTextFinder(request.requestId).matchEntireCell(true).findNext();
+    if (!match || sheet.getRange(match.getRow(),18).getValues()[0][0] !== digest(request.receiptToken)) return response({ok:false});
+    ensureHeaders(sheet);
+    const row = match.getRow();
+    const previouslyMeasuredAt = sheet.getRange(row,35).getValues()[0][0];
+    // Late arrival from an earlier retry must not overwrite a newer attempt.
+    if (typeof previouslyMeasuredAt==='string' && previouslyMeasuredAt>t.measuredAt) return response({ok:false});
+    const value = field => t[field] == null ? '' : t[field];
+    // Authoritative server durations come from the authenticated cached result, not the browser.
+    const serverValue = field => receipt.result[field] == null ? '' : receipt.result[field];
+    sheet.getRange(row,24,1,13).setValues([[
+      serverValue('serverPreApiMs'),serverValue('serverPostApiMs'),serverValue('serverTotalMs'),
+      value('clickToReceiptMs'),value('clickToRedirectMs'),value('receiptToRedirectMs'),
+      value('clickToPostSettledMs'),value('lastReceiptQueryMs'),t.receiptPollCount,
+      value('clickToFailureMs'),t.outcome,t.measuredAt,new Date()
+    ]]);
+    return response({ok:true});
+  } catch (_) {console.error('Falha ao registrar medição do navegador'); return response({ok:false});}
+  finally {lock.releaseLock();}
 }
 function leadErrors(lead) {
   const details = {};
@@ -177,4 +234,5 @@ function response(value) {return ContentService.createTextOutput(JSON.stringify(
 
 // Owner-only setup action: requests the external-request scope without sending lead data.
 function authorizeMF() { UrlFetchApp.getRequest(MF_API_URL, {method:'post'}); }
+
 

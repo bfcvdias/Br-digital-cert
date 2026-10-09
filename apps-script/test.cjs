@@ -4,20 +4,23 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const source = fs.readFileSync(__dirname+'/Code.gs','utf8');
-function harness(status=201) {
+function harness(status=201, throwNetwork=false) {
   const rows=[[]],cache=new Map(),calls=[];
-  const sheet={getLastRow:()=>rows.length,appendRow:r=>rows.push([...r]),getRange:(row,col,count=1,width=1)=>({
+  let now=1000000, columns=26;
+  const sheet={getMaxColumns:()=>columns,insertColumnsAfter:(after,count)=>{columns+=count;},getLastRow:()=>rows.length,appendRow:r=>rows.push([...r]),getRange:(row,col,count=1,width=1)=>({
+    setValue:value=>{rows[row-1] ||= [];rows[row-1][col-1]=value;},
     setValues:values=>{for(let i=0;i<values.length;i++){rows[row-1+i] ||= [];values[i].forEach((value,j)=>rows[row-1+i][col-1+j]=value);}},
     getValues:()=>[rows[row-1].slice(col-1,col-1+width)],
     createTextFinder:value=>({matchEntireCell:()=>({findNext:()=>{const index=rows.findIndex((r,i)=>i>0 && r[col-1]===value);return index<0?null:{getRow:()=>index+1};}})})
   })};
-  const context={console:{error:()=>{}},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},
+  class Clock extends Date {static now(){return now;}}
+  const context={Date:Clock,console:{error:()=>{}},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},
     LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
     SpreadsheetApp:{openById:()=>({getSheetByName:()=>sheet}),flush:()=>{}},
     PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'fake-private-key'})},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(algorithm,value)=>crypto.createHash('sha256').update(value).digest(),base64EncodeWebSafe:value=>Buffer.from(value).toString('base64url')},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'javascript'},createTextOutput:value=>({value,setMimeType(){return this;}})},
-    UrlFetchApp:{fetch:(url,options)=>{calls.push({url,options,validation:rows.at(-1)[21]});return{getResponseCode:()=>status,getContentText:()=>JSON.stringify(status===201||status===200?{success:true,ticketNumber:'MF-UAT-001',whatsappUrl:'https://wa.me/15145551234?text=MF-UAT-001',whatsappText:'MF-UAT-001'}:{details:{phone:'invalid'}})};}}
+    UrlFetchApp:{fetch:(url,options)=>{calls.push({url,options,validation:rows.at(-1)[21]});now+=6500;if(throwNetwork)throw Error('network');return{getResponseCode:()=>status,getContentText:()=>JSON.stringify(status===201||status===200?{success:true,ticketNumber:'MF-UAT-001',whatsappUrl:'https://wa.me/15145551234?text=MF-UAT-001',whatsappText:'MF-UAT-001'}:{details:{phone:'invalid'}})};}}
   };
   vm.createContext(context);vm.runInContext(source,context);
   const lead={name:'Teste UAT',phone:'+5511912345678',phone_country:'BR',email:'teste@example.com',city:'montreal',language:'pt',landing_language:'pt',service:'digital-certificate',consent:'on',consent_version:'2026-09-30',page:'https://certificabrasil.ca/'};
@@ -39,3 +42,37 @@ test('international numbers have no country restriction; legacy formatted Canadi
 
 
 test("simple form accepts missing email, city, service and message",()=>{const h=harness(); delete h.lead.email;delete h.lead.city;delete h.lead.service;delete h.lead.message;h.post();assert.equal(h.receipt().success,true);const payload=JSON.parse(h.calls[0].options.payload);assert.equal(payload.email,undefined);assert.equal(payload.service,undefined);});
+
+function timingRequest(h,overrides={}) {
+  return {action:'mfTiming',requestId:h.request.requestId,receiptToken:h.request.receiptToken,timing:{
+    clickToReceiptMs:16000,clickToRedirectMs:21000,receiptToRedirectMs:5000,
+    clickToPostSettledMs:20900,lastReceiptQueryMs:3000,receiptPollCount:3,
+    outcome:'redirect_started',measuredAt:'2026-10-09T19:30:00.000Z',...overrides
+  }};
+}
+function postTiming(h,r) {return JSON.parse(h.context.doPost({postData:{contents:JSON.stringify(r)}}).value);}
+test('API timing captures HTTP errors and thrown network errors',()=>{
+  for(const h of [harness(),harness(502),harness(201,true)]){
+    h.post();assert.equal(h.rows[1][22],6500);assert.equal(h.receipt().apiDurationMs,6500);
+    assert.equal(h.receipt().serverTotalMs,6500);assert.equal(h.receipt().serverPreApiMs,0);assert.equal(h.receipt().serverPostApiMs,0);
+  }
+});
+test('authenticated browser timing updates only its own row and never calls MF again',()=>{
+  const h=harness();h.post();const ticket=h.rows[1][19];
+  assert.equal(postTiming(h,timingRequest(h,{serverTotalMs:999999})).ok,false);
+  assert.equal(postTiming(h,timingRequest(h,{serverTotalMs:1})).ok,true);
+  assert.equal(h.rows[1][25],6500);assert.equal(h.rows[1][26],16000);assert.equal(h.rows[1][27],21000);
+  assert.equal(h.rows[1][28],5000);assert.equal(h.rows[1][31],3);assert.equal(h.rows[1][33],'redirect_started');
+  assert.equal(h.calls.length,1);assert.equal(h.rows[1][19],ticket);assert.equal(h.rows.length,2);
+});
+test('wrong token, negative values and impossible redirect intervals are rejected',()=>{
+  const h=harness();h.post();const wrong=timingRequest(h);wrong.receiptToken='b'.repeat(64);
+  for(const r of [wrong,timingRequest(h,{clickToReceiptMs:-1}),timingRequest(h,{receiptToRedirectMs:1})])assert.equal(postTiming(h,r).ok,false);
+  assert.equal(h.rows[1][26],undefined);
+});
+test('late telemetry cannot overwrite a more recent attempt',()=>{
+  const h=harness();h.post();assert.equal(postTiming(h,timingRequest(h)).ok,true);
+  assert.equal(postTiming(h,timingRequest(h,{measuredAt:'2026-10-09T19:29:00.000Z'})).ok,false);
+  assert.equal(h.rows[1][34],'2026-10-09T19:30:00.000Z');
+});
+

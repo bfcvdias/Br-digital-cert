@@ -14,8 +14,10 @@ const t = copy[lang];
 
 document.documentElement.lang = lang === "pt" ? "pt-BR" : lang === "fr" ? "fr-CA" : "en-CA";
 document.documentElement.dataset.lang = lang;
-document.title = t.metaTitle;
-document.querySelector('meta[name="description"]').content = t.metaDescription;
+if (!document.documentElement.dataset.servicePage) {
+  document.title = t.metaTitle;
+  document.querySelector('meta[name="description"]').content = t.metaDescription;
+}
 document.querySelectorAll("[data-i18n]").forEach(el => { if(t[el.dataset.i18n]) el.textContent = t[el.dataset.i18n].replace(/<[^>]*>/g, ""); });
 document.querySelectorAll("[data-i18n-html]").forEach(el => { if(t[el.dataset.i18nHtml]) el.innerHTML = t[el.dataset.i18nHtml]; });
 document.querySelector("#year").textContent = new Date().getFullYear();
@@ -32,7 +34,9 @@ document.querySelector('[name="landing_language"]').value = lang;
 let submitting = false;
 let savedLeadSignature = null;
 const mfReceipts = new Map();
+const trackedMFReceipts = new Set();
 document.querySelector("#lead-form").addEventListener("submit", async event => {
+  const clickedAt = performance.now();
   event.preventDefault();
   const form = event.currentTarget, status = document.querySelector("#form-status");
   if (submitting) return;
@@ -69,13 +73,15 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
   if (lead.message?.trim()) payload.message = lead.message.trim();
   const signature = JSON.stringify(payload);
   let success = false;
+  let receipt, result;
+  const timing = beginMFTiming(clickedAt);
   try {
-    let receipt = mfReceipts.get(signature);
+    receipt = mfReceipts.get(signature);
     if (!receipt) {
       receipt = {requestId:crypto.randomUUID(),receiptToken:[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,"0")).join("")};
       mfReceipts.set(signature,receipt);
     }
-    const result = await sendMFLead(lead,receipt);
+    result = await sendMFLead(lead,receipt,timing);
     if (result.saved) savedLeadSignature = signature;
     if (result.status === 400) {
       const labels = {name:'Nome completo',phone:'Telefone / WhatsApp',email:'E-mail',service:'Serviço',message:'Mensagem'};
@@ -87,10 +93,19 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
       return;
     }
     if (![200,201].includes(result.status) || result.success !== true || !result.ticketNumber) throw new Error(`MF: HTTP ${result.status}`);
+    // Confirmed MF creation only; retries share a receipt. Never expose lead data.
+    if (!trackedMFReceipts.has(receipt.requestId)) {
+      trackedMFReceipts.add(receipt.requestId);
+      try {
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({event: 'mf_lead_created'});
+      } catch (_) { /* Tracking must not interrupt the WhatsApp flow. */ }
+    }
     const url = new URL(result.whatsappUrl);
     if (url.protocol !== 'https:' || url.hostname !== 'wa.me' || !/^\/\d{8,15}\/?$/.test(url.pathname) || url.username || url.password || url.port) throw new Error('MF: link do WhatsApp inválido');
     url.searchParams.set('text',`Iniciei meu atendimento pela CertificaBrasil Canada, parceira e representante da MF Certificados, e gostaria de orientação para dar continuidade ao meu pedido.\n\nMeu número de chamado é: ${String(result.ticketNumber)}.`);
     success = true;
+    finishMFTiming(receipt,result,timing,'redirect_started');
     window.location.href = url.href;
   } catch (error) {
     console.error('Falha no encaminhamento MF', error instanceof Error ? error.message : 'Falha de rede');
@@ -100,6 +115,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
   } finally {
     clearTimeout(waitingNotice);
     form.removeAttribute('aria-busy');
+    if (!success && receipt) finishMFTiming(receipt,result,timing,'failed');
     if (!success) { submitting = false; button.disabled = false; button.textContent = originalText; }
   }
 });
