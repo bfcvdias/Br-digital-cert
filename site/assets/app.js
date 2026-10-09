@@ -33,6 +33,7 @@ let submitting = false;
 let savedLeadSignature = null;
 const mfReceipts = new Map();
 document.querySelector("#lead-form").addEventListener("submit", async event => {
+  const clickedAt = performance.now();
   event.preventDefault();
   const form = event.currentTarget, status = document.querySelector("#form-status");
   if (submitting) return;
@@ -69,13 +70,15 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
   if (lead.message?.trim()) payload.message = lead.message.trim();
   const signature = JSON.stringify(payload);
   let success = false;
+  let receipt, result;
+  const timing = beginMFTiming(clickedAt);
   try {
-    let receipt = mfReceipts.get(signature);
+    receipt = mfReceipts.get(signature);
     if (!receipt) {
       receipt = {requestId:crypto.randomUUID(),receiptToken:[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,"0")).join("")};
       mfReceipts.set(signature,receipt);
     }
-    const result = await sendMFLead(lead,receipt);
+    result = await sendMFLead(lead,receipt,timing);
     if (result.saved) savedLeadSignature = signature;
     if (result.status === 400) {
       const labels = {name:'Nome completo',phone:'Telefone / WhatsApp',email:'E-mail',service:'Serviço',message:'Mensagem'};
@@ -91,6 +94,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
     if (url.protocol !== 'https:' || url.hostname !== 'wa.me' || !/^\/\d{8,15}\/?$/.test(url.pathname) || url.username || url.password || url.port) throw new Error('MF: link do WhatsApp inválido');
     url.searchParams.set('text',`Iniciei meu atendimento pela CertificaBrasil Canada, parceira e representante da MF Certificados, e gostaria de orientação para dar continuidade ao meu pedido.\n\nMeu número de chamado é: ${String(result.ticketNumber)}.`);
     success = true;
+    finishMFTiming(receipt,result,timing,'redirect_started');
     window.location.href = url.href;
   } catch (error) {
     console.error('Falha no encaminhamento MF', error instanceof Error ? error.message : 'Falha de rede');
@@ -98,6 +102,7 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
       ? 'Recebemos seus dados, mas não conseguimos concluir o encaminhamento agora. Tente novamente em instantes.'
       : 'Não conseguimos enviar seus dados agora. Tente novamente em instantes.';
   } finally {
+    if (!success && receipt) finishMFTiming(receipt,result,timing,'failed');
     clearTimeout(waitingNotice);
     form.removeAttribute('aria-busy');
     if (!success) { submitting = false; button.disabled = false; button.textContent = originalText; }
@@ -118,6 +123,7 @@ const ptOverrides = {
 document.querySelectorAll("[data-i18n]").forEach(el => {
   if (ptOverrides[el.dataset.i18n]) el.textContent = ptOverrides[el.dataset.i18n];
 });
+
 
 
 
