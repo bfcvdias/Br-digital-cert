@@ -22,8 +22,16 @@ function doPost(e) {
     if (receipt.token !== request.receiptToken) return response({ok:false});
     if (receipt.result.success || receipt.result.pending) return response({ok:true});
   }
-  let saved = false, row, sheet;
+  let saved = false, row, sheet, apiDurationMs = null;
   function finish(result) {
+    // This is the latest actual MF request duration, not the browser's total wait.
+    if (apiDurationMs !== null) {
+      result.apiDurationMs = apiDurationMs;
+      if (saved && row && sheet) {
+        try { sheet.getRange(row,23).setValue(apiDurationMs); }
+        catch (_) { console.error('Falha ao registrar tempo da API MF'); }
+      }
+    }
     if (saved && row && sheet && !result.pending) {
       try {sheet.getRange(row,21,1,2).setValues([[result.success?'Encaminhado à MF UAT':'Falha MF ('+result.status+')',result.success?'Válido':'Não válido']]);} catch (_) {}
     }
@@ -69,10 +77,18 @@ function doPost(e) {
   try {
     const key = PropertiesService.getScriptProperties().getProperty(MF_API_KEY_PROPERTY);
     if (!key) return finish({status:401,success:false,saved:saved});
-    const upstream = UrlFetchApp.fetch(MF_API_URL, {
+    const fetchOptions = {
       method:'post',contentType:'application/json',headers:{Authorization:'Bearer '+key,Origin:'https://certificabrasil.ca'},
       payload:JSON.stringify(toMF(lead,request.requestId)),muteHttpExceptions:true,followRedirects:false
-    });
+    };
+    let upstream;
+    const apiStartedAt = Date.now();
+    try {
+      upstream = UrlFetchApp.fetch(MF_API_URL, fetchOptions);
+    } finally {
+      // Capture HTTP failures and thrown network errors without timing Sheet writes.
+      apiDurationMs = Math.max(0, Date.now() - apiStartedAt);
+    }
     const status = upstream.getResponseCode();
     let data;
     try { data = JSON.parse(upstream.getContentText()); } catch (_) { data = {}; }
@@ -130,7 +146,7 @@ function legacySave(lead) {
   } catch (_) {return response({ok:false});} finally {lock.releaseLock();}
 }
 function ensureHeaders(sheet) {
-  sheet.getRange(1,15,1,8).setValues([['Consentimento registrado','Versão da política','ID do registro','Comprovante hash','Pedido hash','Atendimento MF','Encaminhamento MF','Validação']]);
+  sheet.getRange(1,15,1,9).setValues([['Consentimento registrado','Versão da política','ID do registro','Comprovante hash','Pedido hash','Atendimento MF','Encaminhamento MF','Validação','Tempo API MF (ms)']]);
 }
 function leadErrors(lead) {
   const details = {};
