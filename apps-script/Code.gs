@@ -1,4 +1,4 @@
-const MF_API_URL = 'https://mf-certificados-git-claude-partner-lead-endpoint-7vpm7q-mf-cert.vercel.app/api/partners/leads';
+const MF_API_URL = 'https://www.mfcertificados.com/api/partners/leads';
 // Produção: https://www.mfcertificados.com/api/partners/leads
 const MF_API_KEY_PROPERTY = 'MF_API_KEY';
 const CODIGO_DO_PAIS_PADRAO = '1';
@@ -33,7 +33,7 @@ function doPost(e) {
       }
     }
     if (saved && row && sheet && !result.pending) {
-      try {sheet.getRange(row,21,1,2).setValues([[result.success?'Encaminhado à MF UAT':'Falha MF ('+result.status+')',result.success?'Válido':'Não válido']]);} catch (_) {}
+      try {sheet.getRange(row,21,1,2).setValues([[result.success?'Encaminhado à MF PRD':'Falha MF ('+result.status+')',result.success?'Válido':'Não válido']]);} catch (_) {}
     }
     cache.put(cacheKey, JSON.stringify({token:request.receiptToken,result:result}), 600);
     return response({ok:result.success === true});
@@ -97,7 +97,7 @@ function doPost(e) {
       console.error('Falha MF HTTP '+status);
       return finish({status:[401,403,500,502].indexOf(status)>=0?status:502,success:false,saved:true});
     }
-    sheet.getRange(row,20,1,3).setValues([[clean(data.ticketNumber,120),'Encaminhado à MF UAT','Válido']]);
+    sheet.getRange(row,20,1,3).setValues([[clean(data.ticketNumber,120),'Encaminhado à MF PRD','Válido']]);
     return finish({status:status,success:true,saved:true,ticketNumber:String(data.ticketNumber),whatsappUrl:data.whatsappUrl,whatsappText:typeof data.whatsappText === 'string'?data.whatsappText:'',duplicate:data.duplicate === true});
   } catch (_) {
     console.error('Falha temporária no encaminhamento MF');
