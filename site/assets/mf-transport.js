@@ -53,9 +53,9 @@ function finishMFTiming(receipt, result, timing, outcome) {
   } catch (_) {}
   return diagnostic;
 }
-async function sendMFLead(lead,receipt,timing = beginMFTiming()) {
+async function sendMFLead(lead,receipt,timing = beginMFTiming(), turnstileToken) {
   // An opaque POST response cannot confirm storage; the receipt confirms both stages.
-  const post = fetch(MF_SCRIPT_URL, {method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'mfLead',...receipt,lead}),signal:AbortSignal.timeout(90000)})
+  const post = fetch(MF_SCRIPT_URL, {method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'mfLead',...receipt,lead,turnstileToken}),signal:AbortSignal.timeout(90000)})
     .catch(()=>{}).then(()=>{ timing.postSettledMs = elapsedMF(timing); });
   const deadline = Date.now()+100000;
   while(Date.now()<deadline) {

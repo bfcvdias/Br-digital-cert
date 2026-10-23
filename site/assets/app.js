@@ -81,7 +81,8 @@ document.querySelector("#lead-form").addEventListener("submit", async event => {
       receipt = {requestId:crypto.randomUUID(),receiptToken:[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,"0")).join("")};
       mfReceipts.set(signature,receipt);
     }
-    result = await sendMFLead(lead,receipt,timing);
+    const turnstileToken = await window.getLeadBotToken(receipt.requestId);
+    result = await sendMFLead(lead,receipt,timing,turnstileToken);
     if (result.saved) savedLeadSignature = signature;
     if (result.status === 400) {
       const labels = {name:'Nome completo',phone:'Telefone / WhatsApp',email:'E-mail',service:'Serviço',message:'Mensagem'};

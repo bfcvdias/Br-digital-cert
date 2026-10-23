@@ -11,10 +11,13 @@ const ALLOWED_SERVICES = ['digital-certificate', 'documents', 'apostille', 'othe
 function doPost(e) {
   const serverStartedAt = Date.now();
   let request;
-  try { request = JSON.parse(e && e.postData && e.postData.contents || '{}'); }
+  const body = e && e.postData && e.postData.contents;
+  if (typeof body !== 'string' || body.length > 16384) return response({ok:false});
+  try { request = JSON.parse(body); }
   catch (_) { return response({ok:false}); }
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return response({ok:false});
   if (request.action === 'mfTiming') return saveMFTiming(request);
-  if (request.action !== 'mfLead') return legacySave(request);
+  if (request.action !== 'mfLead') return response({ok:false});
   if (!validReceipt(request.requestId, request.receiptToken)) return response({ok:false});
   const cache = CacheService.getScriptCache();
   const cacheKey = 'mf:' + request.requestId;
@@ -26,7 +29,15 @@ function doPost(e) {
   }
   let saved = false, row, sheet, apiDurationMs = null, apiStartedAt = null, apiCompletedAt = null;
   function finish(result) {
-    // This is the latest actual MF request duration, not the browser's total wait.
+    // A concurrent duplicate with an invalid/reused challenge must not replace
+    // a saved receipt produced by the already admitted request.
+    if (!saved) {
+      const latestRaw = cache.get(cacheKey);
+      const latest = latestRaw ? JSON.parse(latestRaw) : null;
+      if (latest && latest.token === request.receiptToken && latest.result.saved) {
+        return response({ok:latest.result.success === true || latest.result.pending === true});
+      }
+    }
     if (apiDurationMs !== null) {
       result.apiDurationMs = apiDurationMs;
       if (saved && row && sheet) {
@@ -37,7 +48,6 @@ function doPost(e) {
     if (saved && row && sheet && !result.pending) {
       try {sheet.getRange(row,21,1,2).setValues([[result.success?'Encaminhado à MF PRD':'Falha MF ('+result.status+')',result.success?'Válido':'Não válido']]);} catch (_) {}
     }
-    // Same server clock for every stage; never subtract browser and server timestamps.
     const receiptReadyAt = Date.now();
     result.serverTotalMs = Math.max(0, receiptReadyAt - serverStartedAt);
     if (apiStartedAt !== null) result.serverPreApiMs = Math.max(0, apiStartedAt - serverStartedAt);
@@ -47,6 +57,8 @@ function doPost(e) {
   }
   const lead = request.lead;
   if (!isValidLead(lead)) return finish({status:400,success:false,saved:false,details:leadErrors(lead)});
+  const botStatus = verifyLeadBot_(request);
+  if (botStatus !== 200) return finish({status:botStatus,success:false,saved:false});
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) return finish({status:502,success:false,saved:false});
   try {
@@ -56,6 +68,8 @@ function doPost(e) {
       if (receipt.token !== request.receiptToken) return response({ok:false});
       if (receipt.result.success || receipt.result.pending) return response({ok:true});
     }
+    // Script lock makes the durable budget reservation atomic across executions.
+    if (!reserveLeadBudget_(lead)) return finish({status:429,success:false,saved:false});
     sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
     ensureHeaders(sheet);
     const match = sheet.getLastRow() > 1 ? sheet.getRange(2,17,sheet.getLastRow()-1,1).createTextFinder(request.requestId).matchEntireCell(true).findNext() : null;
@@ -93,7 +107,6 @@ function doPost(e) {
     try {
       upstream = UrlFetchApp.fetch(MF_API_URL, fetchOptions);
     } finally {
-      // Capture HTTP failures and thrown network errors without timing Sheet writes.
       apiCompletedAt = Date.now();
       apiDurationMs = Math.max(0, apiCompletedAt - apiStartedAt);
     }
@@ -139,20 +152,6 @@ function toMF(lead, id) {
   if (lead.message && lead.message.trim()) payload.message = lead.message.trim();
   return payload;
 }
-function legacySave(lead) {
-  if (!isValidLead(lead)) return response({ok:false});
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(5000)) return response({ok:false});
-  try {
-    const cache = CacheService.getScriptCache(), fingerprint = 'legacy:'+digest(lead.email+'|'+lead.phone);
-    if (cache.get(fingerprint)) return response({ok:false});
-    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME);
-    ensureHeaders(sheet);
-    sheet.appendRow([new Date(),clean(lead.name,120),clean(lead.phone,32),clean(lead.email,254),clean(lead.city,40),clean(lead.language,8),clean(lead.service,80),clean(lead.message,2000),clean(lead.source,120),clean(lead.campaign,160),clean(lead.medium,80),clean(lead.term,160),clean(lead.landing_language,8),clean(lead.page,2000),'Sim',clean(lead.consent_version||POLICY_VERSION,40)]);
-    cache.put(fingerprint,'1',60);
-    return response({ok:true});
-  } catch (_) {return response({ok:false});} finally {lock.releaseLock();}
-}
 function ensureHeaders(sheet) {
   if (sheet.getMaxColumns() < 36) sheet.insertColumnsAfter(sheet.getMaxColumns(),36-sheet.getMaxColumns());
   sheet.getRange(1,15,1,22).setValues([['Consentimento registrado','Versão da política','ID do registro','Comprovante hash','Pedido hash','Atendimento MF','Encaminhamento MF','Validação','Tempo API MF (ms)',
@@ -162,7 +161,6 @@ function ensureHeaders(sheet) {
     'Clique até falha (ms)','Resultado da medição','Medição no navegador (UTC)','Medição registrada']]);
 }
 
-// Best-effort telemetry for this lead only; it never calls MF or changes lead status.
 function saveMFTiming(request) {
   if (!validReceipt(request.requestId,request.receiptToken)) return response({ok:false});
   const raw = CacheService.getScriptCache().get('mf:'+request.requestId);
@@ -190,10 +188,8 @@ function saveMFTiming(request) {
     ensureHeaders(sheet);
     const row = match.getRow();
     const previouslyMeasuredAt = sheet.getRange(row,35).getValues()[0][0];
-    // Late arrival from an earlier retry must not overwrite a newer attempt.
     if (typeof previouslyMeasuredAt==='string' && previouslyMeasuredAt>t.measuredAt) return response({ok:false});
     const value = field => t[field] == null ? '' : t[field];
-    // Authoritative server durations come from the authenticated cached result, not the browser.
     const serverValue = field => receipt.result[field] == null ? '' : receipt.result[field];
     sheet.getRange(row,24,1,13).setValues([[
       serverValue('serverPreApiMs'),serverValue('serverPostApiMs'),serverValue('serverTotalMs'),
@@ -207,7 +203,10 @@ function saveMFTiming(request) {
 }
 function leadErrors(lead) {
   const details = {};
-  if (!lead || typeof lead !== 'object') return {name:'Confira os dados.'};
+  if (!lead || typeof lead !== 'object' || Array.isArray(lead)) return {name:'Confira os dados.'};
+  for (const field of Object.keys(lead)) {
+    if (typeof lead[field] !== 'string' || lead[field].length > 2000) return {name:'Confira os dados.'};
+  }
   if (!isText(lead.name,120)) details.name = 'Informe seu nome.';
   if (lead.email && (!isText(lead.email,254) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email.trim()))) details.email = 'Confira seu e-mail.';
   if (!/^\+[\d\s().-]+$/.test(String(lead.phone || '')) || !/^[1-9]\d{7,14}$/.test(String(lead.phone || '').replace(/\D/g,''))) details.phone = 'Informe o número internacional com DDD.';
@@ -236,3 +235,59 @@ function response(value) {return ContentService.createTextOutput(JSON.stringify(
 function authorizeMF() { UrlFetchApp.getRequest(MF_API_URL, {method:'post'}); }
 
 
+// No client IP is exposed by Apps Script's documented event object. These are
+// global and per-phone budgets, never a claim of IP throttling. Properties are
+// durable; cache eviction cannot reset these counters. No raw phone is stored.
+function reserveBudget_(kind, phoneKey) {
+  const props = PropertiesService.getScriptProperties();
+  const now = Date.now(), tenMinutes = Math.floor(now / 600000), day = Math.floor(now / 86400000);
+  const property = 'ABUSE_V1_' + kind;
+  const raw = props.getProperty(property);
+  const state = raw ? JSON.parse(raw) : {short:tenMinutes,shortCount:0,day:day,dayCount:0,phones:{}};
+  if (!state || !Number.isInteger(state.shortCount) || state.shortCount<0 ||
+      !Number.isInteger(state.dayCount) || state.dayCount<0 || !state.phones || typeof state.phones!=='object') throw Error('Invalid budget');
+  if (state.short !== tenMinutes) {state.short=tenMinutes;state.shortCount=0;}
+  if (state.day !== day) {state.day=day;state.dayCount=0;}
+  const limit = kind==='VERIFY' ? [60,200] : [20,100];
+  if (state.shortCount >= limit[0] || state.dayCount >= limit[1]) return false;
+  if (phoneKey) {
+    const hour = Math.floor(now / 3600000);
+    for (const key of Object.keys(state.phones)) if (state.phones[key].hour !== hour) delete state.phones[key];
+    const entry = state.phones[phoneKey] || {hour:hour,count:0};
+    if (entry.count >= 3 || Object.keys(state.phones).length >= 100 && !state.phones[phoneKey]) return false;
+    state.phones[phoneKey]={hour:hour,count:entry.count+1};
+  }
+  state.shortCount++; state.dayCount++;
+  props.setProperty(property,JSON.stringify(state));
+  return true;
+}
+function reserveLeadBudget_(lead) {
+  const salt=PropertiesService.getScriptProperties().getProperty('ABUSE_HASH_SECRET');
+  if (!salt || salt.length<32) throw Error('Missing abuse hash secret');
+  const key=Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(String(lead.phone).replace(/\D/g,''),salt));
+  return reserveBudget_('MF',key);
+}
+function verifyLeadBot_(request) {
+  if (typeof request.turnstileToken!=='string' || !request.turnstileToken || request.turnstileToken.length>2048) return 403;
+  const props=PropertiesService.getScriptProperties();
+  const secret=props.getProperty('TURNSTILE_SECRET_KEY');
+  const salt=props.getProperty('ABUSE_HASH_SECRET');
+  if (!secret || /^1x000000|^2x000000|^3x000000/.test(secret) || !salt || salt.length<32) return 503;
+  const lock=LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return 429;
+  try {if (!reserveBudget_('VERIFY')) return 429;}
+  catch (_) {return 503;}
+  finally {lock.releaseLock();}
+  try {
+    const result=UrlFetchApp.fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{
+      method:'post',payload:{secret:secret,response:request.turnstileToken},
+      muteHttpExceptions:true,followRedirects:false
+    });
+    if (result.getResponseCode()!==200) return 503;
+    const data=JSON.parse(result.getContentText());
+    // Siteverify rejects expired/reused tokens; hostname, action and cdata bind
+    // the challenge to our website, lead operation and this exact request ID.
+    return data.success===true && ['certificabrasil.ca','www.certificabrasil.ca'].indexOf(data.hostname)>=0 &&
+      data.action==='mf_lead' && data.cdata===request.requestId ? 200 : 403;
+  } catch (_) {return 503;}
+}

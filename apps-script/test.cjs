@@ -7,6 +7,10 @@ const source = fs.readFileSync(__dirname+'/Code.gs','utf8');
 function harness(status=201, throwNetwork=false) {
   const rows=[[]],cache=new Map(),calls=[];
   let now=1000000, columns=26;
+  const props=new Map([['MF_API_KEY','fake-private-key'],['TURNSTILE_SECRET_KEY','private-turnstile-key'],['ABUSE_HASH_SECRET','s'.repeat(32)]]);
+  const botCalls=[], usedTokens=new Set();
+  let botOverride=null, throwBot=false, budgetUnavailable=false;
+  const scriptProps={getProperty:k=>props.get(k)||null,setProperty:(k,v)=>{if(budgetUnavailable)throw Error('quota');props.set(k,v);}};
   const sheet={getMaxColumns:()=>columns,insertColumnsAfter:(after,count)=>{columns+=count;},getLastRow:()=>rows.length,appendRow:r=>rows.push([...r]),getRange:(row,col,count=1,width=1)=>({
     setValue:value=>{rows[row-1] ||= [];rows[row-1][col-1]=value;},
     setValues:values=>{for(let i=0;i<values.length;i++){rows[row-1+i] ||= [];values[i].forEach((value,j)=>rows[row-1+i][col-1+j]=value);}},
@@ -17,17 +21,25 @@ function harness(status=201, throwNetwork=false) {
   const context={Date:Clock,console:{error:()=>{}},CacheService:{getScriptCache:()=>({get:k=>cache.get(k)||null,put:(k,v)=>cache.set(k,v)})},
     LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock:()=>{}})},
     SpreadsheetApp:{openById:()=>({getSheetByName:()=>sheet}),flush:()=>{}},
-    PropertiesService:{getScriptProperties:()=>({getProperty:()=> 'fake-private-key'})},
-    Utilities:{DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(algorithm,value)=>crypto.createHash('sha256').update(value).digest(),base64EncodeWebSafe:value=>Buffer.from(value).toString('base64url')},
+    PropertiesService:{getScriptProperties:()=>({...scriptProps})},
+    Utilities:{computeHmacSha256Signature:(value,key)=>crypto.createHmac('sha256',key).update(value).digest(),DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(algorithm,value)=>crypto.createHash('sha256').update(value).digest(),base64EncodeWebSafe:value=>Buffer.from(value).toString('base64url')},
     ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'javascript'},createTextOutput:value=>({value,setMimeType(){return this;}})},
-    UrlFetchApp:{fetch:(url,options)=>{calls.push({url,options,validation:rows.at(-1)[21]});now+=6500;if(throwNetwork)throw Error('network');return{getResponseCode:()=>status,getContentText:()=>JSON.stringify(status===201||status===200?{success:true,ticketNumber:'MF-UAT-001',whatsappUrl:'https://wa.me/15145551234?text=MF-UAT-001',whatsappText:'MF-UAT-001'}:{details:{phone:'invalid'}})};}}
+    UrlFetchApp:{fetch:(url,options)=>{
+      if(url==='https://challenges.cloudflare.com/turnstile/v0/siteverify') {
+        botCalls.push({url,options}); if(throwBot)throw Error('network');
+        const token=options.payload.response, duplicate=usedTokens.has(token);usedTokens.add(token);
+        return {getResponseCode:()=>200,getContentText:()=>JSON.stringify(botOverride || {success:!duplicate,hostname:'certificabrasil.ca',action:'mf_lead',cdata:request.requestId})};
+      }
+      calls.push({url,options,validation:rows.at(-1)[21]});now+=6500;if(throwNetwork)throw Error('network');return{getResponseCode:()=>status,getContentText:()=>JSON.stringify(status===201||status===200?{success:true,ticketNumber:'MF-UAT-001',whatsappUrl:'https://wa.me/15145551234?text=MF-UAT-001',whatsappText:'MF-UAT-001'}:{details:{phone:'invalid'}})};}}
   };
   vm.createContext(context);vm.runInContext(source,context);
   const lead={name:'Teste UAT',phone:'+5511912345678',phone_country:'BR',email:'teste@example.com',city:'montreal',language:'pt',landing_language:'pt',service:'digital-certificate',consent:'on',consent_version:'2026-09-30',page:'https://certificabrasil.ca/'};
-  const request={action:'mfLead',requestId:'11111111-1111-4111-8111-111111111111',receiptToken:'a'.repeat(64),lead};
+  const request={turnstileToken:'valid-challenge-token',action:'mfLead',requestId:'11111111-1111-4111-8111-111111111111',receiptToken:'a'.repeat(64),lead};
   const post=()=>context.doPost({postData:{contents:JSON.stringify(request)}});
   const receipt=()=>JSON.parse(cache.get('mf:'+request.requestId)).result;
-  return{context,rows,calls,request,lead,post,receipt};
+  return{context,rows,calls,request,lead,post,receipt,props,botCalls,usedTokens,
+    setBot:value=>{botOverride=value;},breakBot:()=>{throwBot=true;},breakBudget:()=>{budgetUnavailable=true;},
+    advance:ms=>{now+=ms;},fresh:()=>{request.requestId=crypto.randomUUID();request.receiptToken=crypto.randomBytes(32).toString('hex');request.turnstileToken=crypto.randomUUID();}};
 }
 test('saves before MF, starts Não válido and confirms Válido with ticket',()=>{
   const h=harness();h.post();assert.equal(h.calls[0].validation,'Não válido');assert.equal(h.rows.length,2);assert.equal(h.rows[1][21],'Válido');assert.equal(h.rows[1][19],'MF-UAT-001');assert.equal(h.receipt().success,true);
@@ -35,7 +47,7 @@ test('saves before MF, starts Não válido and confirms Válido with ticket',()=
 });
 test('repeated identical request does not duplicate row or successful MF call',()=>{const h=harness();h.post();h.post();assert.equal(h.rows.length,2);assert.equal(h.calls.length,1);});
 test('MF errors retain saved row and Não válido',()=>{for(const status of [400,401,403,500,502]){const h=harness(status);h.post();assert.equal(h.receipt().status,status);assert.equal(h.receipt().saved,true);assert.equal(h.rows[1][21],'Não válido');assert.equal(h.rows.length,2);}});
-test('retry after MF failure does not duplicate saved lead',()=>{const h=harness(502);h.post();h.post();assert.equal(h.rows.length,2);assert.equal(h.calls.length,2);});
+test('retry after MF failure does not duplicate saved lead',()=>{const h=harness(502);h.post();h.request.turnstileToken='new-challenge-token';h.post();assert.equal(h.rows.length,2);assert.equal(h.calls.length,2);});
 test('invalid lead does not save or call MF',()=>{const h=harness();h.lead.phone='123';h.post();assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);assert.equal(h.receipt().status,400);});
 test('receipt never exposes key or contact data and rejects wrong token',()=>{const h=harness();h.post();const parameter={requestId:h.request.requestId,receiptToken:h.request.receiptToken,callback:'__mfReceipt_'+'a'.repeat(32)};const r=h.context.doGet({parameter});assert.ok(r.value.includes('MF-UAT-001'));assert.ok(!r.value.includes('fake-private-key'));assert.ok(!r.value.includes('teste@example.com'));assert.ok(!r.value.includes('5511912345678'));parameter.receiptToken='b'.repeat(64);assert.ok(h.context.doGet({parameter}).value.includes('pending'));});
 test('international numbers have no country restriction; legacy formatted Canadian remains accepted',()=>{const h=harness();for(const phone of ['+1 514 555 1234','+12133734253','+5511912345678','+442079460018','+919876543210','+81312345678'])assert.equal(h.context.isValidLead({...h.lead,phone}),true);});
@@ -76,3 +88,41 @@ test('late telemetry cannot overwrite a more recent attempt',()=>{
   assert.equal(h.rows[1][34],'2026-10-09T19:30:00.000Z');
 });
 
+
+test('legacy and unknown actions cannot save or contact MF',()=>{
+  for(const action of [undefined,'legacySave','other']){const h=harness();h.request.action=action;h.post();assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);assert.equal(h.botCalls.length,0);}
+});
+test('malformed, null, array and oversized bodies fail without side effects',()=>{
+  for(const body of ['null','[]','{','x'.repeat(16385),'1']){const h=harness();assert.equal(JSON.parse(h.context.doPost({postData:{contents:body}}).value).ok,false);assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);}
+});
+test('missing token and unconfigured secrets fail closed',()=>{
+  for(const key of ['token','TURNSTILE_SECRET_KEY','ABUSE_HASH_SECRET']){const h=harness();if(key==='token')delete h.request.turnstileToken;else h.props.delete(key);h.post();assert.equal(h.receipt().success,false);assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);assert.equal(h.botCalls.length,0);}
+});
+test('wrong hostname, action, binding, invalid and replayed tokens are rejected',()=>{
+  for(const override of [{success:false},{hostname:'evil.example'},{action:'other'},{cdata:'wrong-id'}]){
+    const h=harness();h.setBot({success:true,hostname:'certificabrasil.ca',action:'mf_lead',cdata:h.request.requestId,...override});h.post();assert.equal(h.receipt().status,403);assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);
+  }
+  const h=harness();h.post();h.fresh();h.request.turnstileToken='valid-challenge-token';h.post();assert.equal(h.receipt().status,403);assert.equal(h.rows.length,2);assert.equal(h.calls.length,1);
+});
+test('verification outage and persistent storage failure do not reach MF',()=>{
+  for(const failure of ['breakBot','breakBudget']){const h=harness();h[failure]();h.post();assert.equal(h.receipt().status,503);assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);}
+});
+test('successful receipt retry needs no second verification or budget reservation',()=>{
+  const h=harness();h.post();const state=h.props.get('ABUSE_V1_MF');delete h.request.turnstileToken;h.post();assert.equal(h.calls.length,1);assert.equal(h.botCalls.length,1);assert.equal(h.props.get('ABUSE_V1_MF'),state);
+});
+test('per-phone hourly budget survives receipt-cache-independent new IDs',()=>{
+  const h=harness();for(let i=0;i<4;i++){h.fresh();h.post();}assert.equal(h.receipt().status,429);assert.equal(h.calls.length,3);assert.equal(h.rows.length,4);
+  assert.ok(!h.props.get('ABUSE_V1_MF').includes('5511912345678'));h.advance(3600000);h.fresh();h.post();assert.equal(h.receipt().success,true);
+});
+test('global MF burst and daily budgets bound varying phones and requests',()=>{
+  const h=harness();for(let i=0;i<21;i++){h.fresh();h.lead.phone='+551191234'+String(1000+i);h.post();}
+  assert.equal(h.receipt().status,429);assert.equal(h.calls.length,20);
+  for(let batch=1;batch<5;batch++){h.advance(600000);for(let i=0;i<20;i++){h.fresh();h.lead.phone='+551191234'+String(1000+batch*20+i);h.post();}}
+  assert.equal(h.calls.length,100);h.advance(600000);h.fresh();h.post();assert.equal(h.receipt().status,429);assert.equal(h.calls.length,100);
+});
+test('invalid challenges have a pre-verification burst cap',()=>{
+  const h=harness();h.setBot({success:false});for(let i=0;i<61;i++){h.fresh();h.post();}assert.equal(h.receipt().status,429);assert.equal(h.botCalls.length,60);assert.equal(h.rows.length,1);
+});
+test('structured lead fields fail validation before external verification',()=>{
+  const h=harness();h.lead.email={value:'x'};h.post();assert.equal(h.receipt().status,400);assert.equal(h.botCalls.length,0);
+});
