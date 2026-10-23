@@ -38,6 +38,7 @@ function doPost(e) {
         return response({ok:latest.result.success === true || latest.result.pending === true});
       }
     }
+    // This is the latest actual MF request duration, not the browser's total wait.
     if (apiDurationMs !== null) {
       result.apiDurationMs = apiDurationMs;
       if (saved && row && sheet) {
@@ -48,6 +49,7 @@ function doPost(e) {
     if (saved && row && sheet && !result.pending) {
       try {sheet.getRange(row,21,1,2).setValues([[result.success?'Encaminhado à MF PRD':'Falha MF ('+result.status+')',result.success?'Válido':'Não válido']]);} catch (_) {}
     }
+    // Same server clock for every stage; never subtract browser and server timestamps.
     const receiptReadyAt = Date.now();
     result.serverTotalMs = Math.max(0, receiptReadyAt - serverStartedAt);
     if (apiStartedAt !== null) result.serverPreApiMs = Math.max(0, apiStartedAt - serverStartedAt);
@@ -107,6 +109,7 @@ function doPost(e) {
     try {
       upstream = UrlFetchApp.fetch(MF_API_URL, fetchOptions);
     } finally {
+      // Capture HTTP failures and thrown network errors without timing Sheet writes.
       apiCompletedAt = Date.now();
       apiDurationMs = Math.max(0, apiCompletedAt - apiStartedAt);
     }
@@ -161,6 +164,7 @@ function ensureHeaders(sheet) {
     'Clique até falha (ms)','Resultado da medição','Medição no navegador (UTC)','Medição registrada']]);
 }
 
+// Best-effort telemetry for this lead only; it never calls MF or changes lead status.
 function saveMFTiming(request) {
   if (!validReceipt(request.requestId,request.receiptToken)) return response({ok:false});
   const raw = CacheService.getScriptCache().get('mf:'+request.requestId);
@@ -188,8 +192,10 @@ function saveMFTiming(request) {
     ensureHeaders(sheet);
     const row = match.getRow();
     const previouslyMeasuredAt = sheet.getRange(row,35).getValues()[0][0];
+    // Late arrival from an earlier retry must not overwrite a newer attempt.
     if (typeof previouslyMeasuredAt==='string' && previouslyMeasuredAt>t.measuredAt) return response({ok:false});
     const value = field => t[field] == null ? '' : t[field];
+    // Authoritative server durations come from the authenticated cached result, not the browser.
     const serverValue = field => receipt.result[field] == null ? '' : receipt.result[field];
     sheet.getRange(row,24,1,13).setValues([[
       serverValue('serverPreApiMs'),serverValue('serverPostApiMs'),serverValue('serverTotalMs'),

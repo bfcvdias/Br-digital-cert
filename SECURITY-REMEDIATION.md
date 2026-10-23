@@ -39,7 +39,7 @@ node tests/google-consent.cjs
 node tests/clarity-consent.cjs
 ```
 
-29 offline tests passed, plus both consent suites. MF and Siteverify were stubbed in all server tests. No synthetic production lead, production deployment, paid-credit service, or key publication was used.
+30 offline tests passed, plus both consent suites. MF and Siteverify were stubbed in all server tests. No synthetic production lead, production deployment, paid-credit service, or key publication was used.
 
 Primary references:
 - https://developers.cloudflare.com/turnstile/get-started/server-side-validation/

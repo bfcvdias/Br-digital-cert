@@ -126,3 +126,10 @@ test('invalid challenges have a pre-verification burst cap',()=>{
 test('structured lead fields fail validation before external verification',()=>{
   const h=harness();h.lead.email={value:'x'};h.post();assert.equal(h.receipt().status,400);assert.equal(h.botCalls.length,0);
 });
+test('concurrent rejected challenge cannot overwrite an admitted pending receipt',()=>{
+  const h=harness();h.context.UrlFetchApp.fetch=()=>{
+    h.context.CacheService.getScriptCache().put('mf:'+h.request.requestId,JSON.stringify({token:h.request.receiptToken,result:{saved:true,pending:true}}));
+    return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({success:false})};
+  };
+  h.post();assert.equal(h.receipt().pending,true);assert.equal(h.receipt().saved,true);assert.equal(h.rows.length,1);assert.equal(h.calls.length,0);
+});
